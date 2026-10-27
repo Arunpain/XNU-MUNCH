@@ -12,3 +12,6 @@ xnu/out/
 xnu/out-*/
 __pycache__/
 *.dmg
+
+*.img
+*.simg

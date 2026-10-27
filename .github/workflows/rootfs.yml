@@ -1,0 +1,77 @@
+name: Build iOS 16 Root Filesystem
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-root:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse libfuse3-dev bzip2 libbz2-dev cmake gcc g++ git libattr1-dev zlib1g-dev hfsprogs rsync android-sdk-libsparse-utils p7zip-full wget
+          # Verify kernel HFS+ support
+          sudo modprobe hfsplus || true
+
+      - name: Compile apfs-fuse
+        run: |
+          git clone --recursive https://github.com/sgan81/apfs-fuse.git /tmp/apfs-fuse
+          cd /tmp/apfs-fuse && mkdir build && cd build
+          cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_FLAGS="-include cstdint" ..
+          make -j$(nproc)
+          sudo make install
+          apfs-fuse --help || true
+
+      - name: Download iPhone X iOS 16.7.16 IPSW
+        run: |
+          mkdir -p /tmp/ipsw
+          echo "Downloading iPhone X iOS 16.7.16 (20H392) IPSW from Apple CDN..."
+          wget -q --show-progress -O /tmp/ipsw/restore.ipsw \
+            "https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+          ls -la /tmp/ipsw/
+
+      - name: Extract Cryptex and OS DMGs from IPSW
+        run: |
+          cd /tmp/ipsw
+          7z e restore.ipsw 087-86698-044.dmg 087-86593-047.dmg 087-86715-047.dmg
+          mv 087-86698-044.dmg OS.dmg
+          mv 087-86593-047.dmg SystemOS.dmg
+          mv 087-86715-047.dmg AppOS.dmg
+          rm -f restore.ipsw
+          ls -la
+
+      - name: Build HFS+ iOS Root Image
+        run: |
+          chmod +x tools/mkiosroot.sh
+          sudo tools/mkiosroot.sh /tmp/ipsw/OS.dmg /tmp/ipsw/SystemOS.dmg /tmp/ipsw/AppOS.dmg /tmp/ios16-root.img 16G
+          ls -la /tmp/ios16-root.img
+
+      - name: Check HFS+ Volume and Apply Munch Tweaks
+        run: |
+          sudo fsck.hfsplus -fy /tmp/ios16-root.img || true
+          sudo mkdir -p /mnt/iosroot
+          sudo mount -t hfsplus -o loop,force /tmp/ios16-root.img /mnt/iosroot
+          sudo python3 tools/munch-root-tweaks.py /mnt/iosroot
+          sudo umount /mnt/iosroot
+
+      - name: Convert to Sparse Image (img2simg)
+        run: |
+          img2simg /tmp/ios16-root.img /tmp/ios16-root.simg
+          rm -f /tmp/ios16-root.img
+          ls -lh /tmp/ios16-root.simg
+
+      - name: Split Sparse Image into Downloadable Chunks
+        run: |
+          mkdir -p /tmp/release_parts
+          # Split into ~1.8GB chunks for easy downloading
+          7z a -v1800m -mx1 /tmp/release_parts/ios16-root-munch.7z /tmp/ios16-root.simg
+          ls -lh /tmp/release_parts/
+
+      - name: Upload Root Image Chunks as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios16-root-munch-parts
+          path: /tmp/release_parts/
