@@ -71,6 +71,7 @@ jobs:
         run: |
           chmod +x tools/mkiosroot.sh
           sudo tools/mkiosroot.sh /tmp/ipsw/OS.dmg /tmp/ipsw/SystemOS.dmg /tmp/ipsw/AppOS.dmg /tmp/ios16-root.img 16G
+          sudo rm -rf /tmp/ipsw
           ls -la /tmp/ios16-root.img
 
       - name: Check HFS+ Volume and Apply Munch Tweaks
@@ -84,7 +85,7 @@ jobs:
       - name: Convert to Sparse Image (img2simg)
         run: |
           img2simg /tmp/ios16-root.img /tmp/ios16-root.simg
-          rm -f /tmp/ios16-root.img
+          sudo rm -f /tmp/ios16-root.img
           ls -lh /tmp/ios16-root.simg
 
       - name: Split Sparse Image into Downloadable Chunks
@@ -92,6 +93,7 @@ jobs:
           mkdir -p /tmp/release_parts
           # Split into ~1.8GB chunks for easy downloading
           7z a -v1800m -mx1 /tmp/release_parts/ios16-root-munch.7z /tmp/ios16-root.simg
+          sudo rm -f /tmp/ios16-root.simg
           ls -lh /tmp/release_parts/
 
       - name: Upload Root Image Chunks as Artifacts
