@@ -191,6 +191,7 @@ def build(seed=None, qemu=False, highmem=False):
 if __name__ == '__main__':
     root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv)
     blob = adt.serialize(root)
+    os.makedirs(os.path.dirname(os.path.abspath(sys.argv[1])), exist_ok=True)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:
         adt.dump(adt.parse(blob)[0])
