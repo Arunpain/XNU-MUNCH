@@ -19,7 +19,13 @@ jobs:
       - name: Install toolchain & dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg python3
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu python3 git
+          # Install official AOSP mkbootimg (Ubuntu apt mkbootimg package is broken without gki)
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg /tmp/mkbootimg-aosp
+          sudo cp /tmp/mkbootimg-aosp/mkbootimg.py /usr/local/bin/mkbootimg
+          sudo cp -r /tmp/mkbootimg-aosp/gki /usr/local/bin/
+          sudo chmod +x /usr/local/bin/mkbootimg
+          mkbootimg --help
 
       - name: Download XNU Kernel Artifact
         env:
