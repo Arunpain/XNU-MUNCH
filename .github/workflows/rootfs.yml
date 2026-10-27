@@ -9,12 +9,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies and enable HFS+ kernel driver
         run: |
           sudo apt-get update
-          sudo apt-get install -y fuse libfuse3-dev bzip2 libbz2-dev cmake gcc g++ git libattr1-dev zlib1g-dev hfsprogs rsync android-sdk-libsparse-utils p7zip-full wget
-          # Verify kernel HFS+ support
-          sudo modprobe hfsplus || true
+          sudo apt-get install -y fuse libfuse3-dev bzip2 libbz2-dev cmake gcc g++ git libattr1-dev zlib1g-dev hfsprogs rsync android-sdk-libsparse-utils p7zip-full wget build-essential
+          
+          # Enable HFS+ kernel module
+          echo "Checking for HFS+ kernel module..."
+          if ! sudo modprobe hfsplus 2>/dev/null; then
+            echo "Attempting to install linux-modules-extra for $(uname -r)..."
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)" || sudo apt-get install -y linux-modules-extra-azure || true
+            sudo modprobe hfsplus 2>/dev/null || true
+          fi
+
+          if lsmod | grep -q hfsplus; then
+            echo "hfsplus kernel module is successfully loaded!"
+          else
+            echo "Fallback: building standalone hfsplus.ko module..."
+            sudo apt-get install -y "linux-headers-$(uname -r)" || true
+            mkdir -p /tmp/hfsplus-build
+            cd /tmp/hfsplus-build
+            git clone --depth 1 --filter=blob:none --no-checkout https://github.com/torvalds/linux.git src
+            cd src
+            git sparse-checkout set fs/hfsplus
+            git checkout
+            cd fs/hfsplus
+            make -C "/lib/modules/$(uname -r)/build" M="$(pwd)" modules
+            sudo insmod hfsplus.ko
+            lsmod | grep hfsplus
+            echo "hfsplus.ko compiled and loaded via insmod!"
+          fi
 
       - name: Compile apfs-fuse
         run: |
