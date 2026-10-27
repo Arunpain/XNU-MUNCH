@@ -1,0 +1,45 @@
+name: Build Boot Shim
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "shim/**"
+      - ".github/workflows/shim.yml"
+
+jobs:
+  build-shim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg
+
+      - name: Build bare-metal shim ELF and Image
+        working-directory: shim
+        run: |
+          mkdir -p out
+          CC=aarch64-linux-gnu-gcc
+          OBJCOPY=aarch64-linux-gnu-objcopy
+          CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
+          for f in start.S shim.c console.c mmu.c fdt.c loader.c ufs.c; do
+            $CC $CFLAGS -c $f -o out/${f%.*}.o
+          done
+          $CC $CFLAGS -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -Wl,-N \
+            out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/ufs.o -o out/shim.elf
+          $OBJCOPY -O binary out/shim.elf out/Image
+          size=$(aarch64-linux-gnu-nm out/shim.elf | awk '$3=="_end"{print strtonum("0x"$1)}')
+          truncate -s "$size" out/Image
+          ls -la out/Image
+
+      - name: Upload Shim Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: shim-binaries
+          path: |
+            shim/out/Image
+            shim/out/shim.elf
