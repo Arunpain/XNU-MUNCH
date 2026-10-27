@@ -1,6 +1,9 @@
-# device dumps: persist/modemst/fsg hold IMEI + calibration; live DT holds the serial
+# device dumps: persist/modemst/fsg hold IMEI + calibration
 backup/
-dtb/
+dtb/*
+!dtb/boot_unpacked/
+dtb/boot_unpacked/*
+!dtb/boot_unpacked/dtb
 recovery/
 # third-party/Apple sources fetched for reading
 research/

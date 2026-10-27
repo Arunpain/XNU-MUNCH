@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "shim/**"
+      - "dtb/**"
+      - "tools/**"
       - ".github/workflows/shim.yml"
 
 jobs:
@@ -14,32 +16,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain
+      - name: Install toolchain & dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg python3
 
-      - name: Build bare-metal shim ELF and Image
+      - name: Download XNU Kernel Artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p xnu/out
+          # Download latest successful xnu-kernel artifact from the repo
+          gh run download -n xnu-kernel -D xnu/out -R ${{ github.repository }} || true
+          ls -la xnu/out/
+
+      - name: Build Munch ADT & Payload
+        run: |
+          mkdir -p shim/out
+          python3 tools/mkadt.py shim/out/munch.adt --highmem
+          if [ -f xnu/out/kernel.development.sweet ]; then
+            python3 tools/mkpayload.py xnu/out/kernel.development.sweet shim/out/munch.adt shim/out/payload.bin \
+              --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30'
+            ls -la shim/out/payload.bin
+          else
+            echo "warning: xnu/out/kernel.development.sweet not found, building standalone diagnostic shim"
+          fi
+
+      - name: Compile Shim & Assemble Boot Image
         working-directory: shim
         run: |
-          mkdir -p out
-          CC=aarch64-linux-gnu-gcc
-          OBJCOPY=aarch64-linux-gnu-objcopy
-          CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
-          for f in start.S shim.c console.c mmu.c fdt.c loader.c ufs.c; do
-            $CC $CFLAGS -c $f -o out/${f%.*}.o
-          done
-          $CC $CFLAGS -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -Wl,-N \
-            out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o out/ufs.o -o out/shim.elf
-          $OBJCOPY -O binary out/shim.elf out/Image
-          size=$(aarch64-linux-gnu-nm out/shim.elf | awk '$3=="_end"{print strtonum("0x"$1)}')
-          truncate -s "$size" out/Image
-          ls -la out/Image
+          if [ -f out/payload.bin ]; then
+            bash build.sh ../shim/out/payload.bin
+          else
+            bash build.sh
+          fi
+          ls -la out/shim-boot.img
 
-      - name: Upload Shim Binaries
+      - name: Upload shim-boot.img Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shim-binaries
-          path: |
-            shim/out/Image
-            shim/out/shim.elf
+          name: shim-boot-img
+          path: shim/out/shim-boot.img
